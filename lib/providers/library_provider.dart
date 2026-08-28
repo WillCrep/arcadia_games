@@ -185,4 +185,10 @@ class LibraryProvider extends ChangeNotifier {
     await loadCollection();
     await loadStats();
   }
+
+  Future<void> addCollectionEntry(int gameId, int platformId, int storeId, String edition, String format) async {
+    await _api.addCollectionEntry(gameId, platformId, storeId, edition, format);
+    await loadCollection(); // 👈 Refresca la lista de copias en memoria
+    await loadStats();      // 👈 Refresca los contadores de copias
+  }
 }

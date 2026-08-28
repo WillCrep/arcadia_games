@@ -39,14 +39,16 @@ class _CollectionTabState extends State<CollectionTab> {
     final provider = context.watch<LibraryProvider>();
     final allCopies = provider.collectionList;
 
-    // 1. Extraer plataformas únicas dinámicamente con su conteo
+    // 1. Extraer plataformas únicas dinámicamente tal como vienen de la BD
     final platformCounts = <String, int>{'Todas': allCopies.length};
     int physicalCount = 0;
     int digitalCount = 0;
 
     for (final c in allCopies) {
-      final plat = _normalizePlatform(c.platform);
-      platformCounts[plat] = (platformCounts[plat] ?? 0) + 1;
+      final plat = c.platform.trim();
+      if (plat.isNotEmpty) {
+        platformCounts[plat] = (platformCounts[plat] ?? 0) + 1;
+      }
 
       final isPhys = c.format != null && c.format!.toLowerCase().contains('físico');
       if (isPhys) {
@@ -56,7 +58,12 @@ class _CollectionTabState extends State<CollectionTab> {
       }
     }
 
-    // 2. Filtrado dinámico
+    // 2. Si la plataforma seleccionada ya no existe, volver a 'Todas'
+    if (!platformCounts.containsKey(_selectedPlatform)) {
+      _selectedPlatform = 'Todas';
+    }
+
+    // 3. Filtrado dinámico
     final filteredCopies = allCopies.where((c) {
       final matchesSearch = _searchCtrl.text.isEmpty ||
           c.gameName.toLowerCase().contains(_searchCtrl.text.toLowerCase()) ||
@@ -65,7 +72,7 @@ class _CollectionTabState extends State<CollectionTab> {
           c.edition.toLowerCase().contains(_searchCtrl.text.toLowerCase());
 
       final matchesPlatform = _selectedPlatform == 'Todas' ||
-          _normalizePlatform(c.platform) == _selectedPlatform;
+          c.platform.trim() == _selectedPlatform;
 
       final isPhys = c.format != null && c.format!.toLowerCase().contains('físico');
       final matchesFormat = _selectedFormat == 'Todos' ||
@@ -89,150 +96,158 @@ class _CollectionTabState extends State<CollectionTab> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // 1. BANNER RESUMEN DE COLECCIÓN (KPIs)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [AppTheme.accent.withOpacity(0.2), AppTheme.cyan.withOpacity(0.12), AppTheme.panel],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+      body: RefreshIndicator(
+        color: AppTheme.accent,
+        backgroundColor: AppTheme.panel,
+        onRefresh: () async {
+          HapticFeedback.lightImpact();
+          await provider.loadCollection(_searchCtrl.text.trim());
+        },
+        child: Column(
+          children: [
+            // 1. BANNER RESUMEN DE COLECCIÓN (KPIs)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [AppTheme.accent.withOpacity(0.2), AppTheme.cyan.withOpacity(0.12), AppTheme.panel],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppTheme.accent.withOpacity(0.35)),
+                  boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 4))],
                 ),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppTheme.accent.withOpacity(0.35)),
-                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 4))],
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _summaryMetric('COPIAS', '${allCopies.length}', Icons.album, AppTheme.text),
+                    Container(height: 28, width: 1, color: Colors.white12),
+                    _summaryMetric('FÍSICOS', '$physicalCount', Icons.disc_full, AppTheme.warning),
+                    Container(height: 28, width: 1, color: Colors.white12),
+                    _summaryMetric('DIGITALES', '$digitalCount', Icons.cloud_done, AppTheme.cyan),
+                  ],
+                ),
+              ).animate().fadeIn(duration: 300.ms).slideY(begin: -0.1, end: 0),
+            ),
+
+            // 2. BUSCADOR
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: TextField(
+                controller: _searchCtrl,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  hintText: 'Buscar por título, edición, tienda o consola...',
+                  hintStyle: const TextStyle(color: AppTheme.textMuted, fontSize: 13),
+                  prefixIcon: const Icon(Icons.search, color: AppTheme.textMuted, size: 20),
+                  suffixIcon: _searchCtrl.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 18, color: AppTheme.textMuted),
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            setState(() {});
+                          },
+                        )
+                      : null,
+                  filled: true,
+                  fillColor: AppTheme.panel,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.border)),
+                ),
               ),
+            ),
+
+            // 3. CARRUSEL DINÁMICO DE CONSOLAS / PLATAFORMAS (CADA CONSOLA ES SU PROPIO CHIP)
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: platformCounts.entries.map((e) {
+                  final isSelected = _selectedPlatform == e.key;
+                  final color = _getPlatformThemeColor(e.key);
+
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: FilterChip(
+                      avatar: e.key == 'Todas'
+                          ? const Icon(Icons.all_inclusive, size: 16, color: Colors.white70)
+                          : Icon(_getPlatformIcon(e.key), size: 15, color: isSelected ? Colors.white : color),
+                      label: Text('${e.key} (${e.value})'),
+                      selected: isSelected,
+                      selectedColor: color.withOpacity(0.35),
+                      backgroundColor: AppTheme.panel,
+                      checkmarkColor: Colors.white,
+                      side: BorderSide(color: isSelected ? color : AppTheme.border),
+                      labelStyle: TextStyle(
+                        fontSize: 11,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                        color: isSelected ? Colors.white : AppTheme.textMuted,
+                      ),
+                      onSelected: (_) {
+                        HapticFeedback.selectionClick();
+                        setState(() => _selectedPlatform = e.key);
+                      },
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+
+            // 4. SELECTOR DE FORMATO (TODOS / DIGITAL / FÍSICO)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+              child: Row(
                 children: [
-                  _summaryMetric('COPIAS', '${allCopies.length}', Icons.album, AppTheme.text),
-                  Container(height: 28, width: 1, color: Colors.white12),
-                  _summaryMetric('FÍSICOS', '$physicalCount', Icons.disc_full, AppTheme.warning),
-                  Container(height: 28, width: 1, color: Colors.white12),
-                  _summaryMetric('DIGITALES', '$digitalCount', Icons.cloud_done, AppTheme.cyan),
+                  _formatPill('Todos', Icons.dashboard_outlined),
+                  const SizedBox(width: 8),
+                  _formatPill('Físico', Icons.album, badgeColor: AppTheme.warning),
+                  const SizedBox(width: 8),
+                  _formatPill('Digital', Icons.cloud_download, badgeColor: AppTheme.cyan),
+                  const Spacer(),
+                  Text(
+                    '${filteredCopies.length} de ${allCopies.length}',
+                    style: const TextStyle(color: AppTheme.textMuted, fontSize: 11, fontWeight: FontWeight.bold),
+                  ),
                 ],
               ),
-            ).animate().fadeIn(duration: 300.ms).slideY(begin: -0.1, end: 0),
-          ),
-
-          // 2. BUSCADOR
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: TextField(
-              controller: _searchCtrl,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                hintText: 'Buscar por título, edición, tienda o plataforma...',
-                hintStyle: const TextStyle(color: AppTheme.textMuted, fontSize: 13),
-                prefixIcon: const Icon(Icons.search, color: AppTheme.textMuted, size: 20),
-                suffixIcon: _searchCtrl.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, size: 18, color: AppTheme.textMuted),
-                        onPressed: () {
-                          _searchCtrl.clear();
-                          setState(() {});
-                        },
-                      )
-                    : null,
-                filled: true,
-                fillColor: AppTheme.panel,
-                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.border)),
-              ),
             ),
-          ),
+            const SizedBox(height: 6),
 
-          // 3. CARRUSEL DINÁMICO DE FILTRO POR CONSOLAS
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: platformCounts.entries.map((e) {
-                final isSelected = _selectedPlatform == e.key;
-                final color = _getPlatformThemeColor(e.key);
-
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: FilterChip(
-                    avatar: e.key == 'Todas'
-                        ? const Icon(Icons.all_inclusive, size: 16, color: Colors.white70)
-                        : Icon(_getPlatformIcon(e.key), size: 15, color: isSelected ? Colors.white : color),
-                    label: Text('${e.key} (${e.value})'),
-                    selected: isSelected,
-                    selectedColor: color.withOpacity(0.35),
-                    backgroundColor: AppTheme.panel,
-                    checkmarkColor: Colors.white,
-                    side: BorderSide(color: isSelected ? color : AppTheme.border),
-                    labelStyle: TextStyle(
-                      fontSize: 11,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-                      color: isSelected ? Colors.white : AppTheme.textMuted,
-                    ),
-                    onSelected: (_) {
-                      HapticFeedback.selectionClick();
-                      setState(() => _selectedPlatform = e.key);
-                    },
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-
-          // 4. SELECTOR DE FORMATO (TODOS / DIGITAL / FÍSICO)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-            child: Row(
-              children: [
-                _formatPill('Todos', Icons.dashboard_outlined),
-                const SizedBox(width: 8),
-                _formatPill('Físico', Icons.album, badgeColor: AppTheme.warning),
-                const SizedBox(width: 8),
-                _formatPill('Digital', Icons.cloud_download, badgeColor: AppTheme.cyan),
-                const Spacer(),
-                Text(
-                  '${filteredCopies.length} de ${allCopies.length}',
-                  style: const TextStyle(color: AppTheme.textMuted, fontSize: 11, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 6),
-
-          // 5. CUADRÍCULA RESPONSIVA ERGONÓMICA (NO SE ESTIRA)
-          Expanded(
-            child: provider.isLoading
-                ? const Center(child: CircularProgressIndicator(color: AppTheme.accent))
-                : filteredCopies.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.album_outlined, size: 48, color: AppTheme.textMuted.withOpacity(0.5)),
-                            const SizedBox(height: 10),
-                            const Text('No se encontraron copias con los filtros actuales.', style: TextStyle(color: AppTheme.textMuted, fontSize: 13)),
-                          ],
+            // 5. CUADRÍCULA RESPONSIVA
+            Expanded(
+              child: provider.isLoading
+                  ? const Center(child: CircularProgressIndicator(color: AppTheme.accent))
+                  : filteredCopies.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.album_outlined, size: 48, color: AppTheme.textMuted.withOpacity(0.5)),
+                              const SizedBox(height: 10),
+                              const Text('No se encontraron copias con los filtros actuales.', style: TextStyle(color: AppTheme.textMuted, fontSize: 13)),
+                            ],
+                          ),
+                        )
+                      : GridView.builder(
+                          padding: const EdgeInsets.all(16),
+                          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                            maxCrossAxisExtent: 400,
+                            mainAxisExtent: 106,
+                            crossAxisSpacing: 12,
+                            mainAxisSpacing: 12,
+                          ),
+                          itemCount: filteredCopies.length,
+                          itemBuilder: (context, idx) => _CollectionCard(
+                            item: filteredCopies[idx],
+                            onDeleted: () => provider.loadCollection(_searchCtrl.text.trim()),
+                          ).animate().fadeIn(delay: (idx * 20).ms, duration: 200.ms),
                         ),
-                      )
-                    : GridView.builder(
-                        padding: const EdgeInsets.all(16),
-                        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 400, // Máximo 400px por tarjeta para que nunca se estire
-                          mainAxisExtent: 106,     // Altura fija ergonómica perfecta
-                          crossAxisSpacing: 12,
-                          mainAxisSpacing: 12,
-                        ),
-                        itemCount: filteredCopies.length,
-                        itemBuilder: (context, idx) => _CollectionCard(
-                          item: filteredCopies[idx],
-                          onDeleted: () => provider.loadCollection(_searchCtrl.text.trim()),
-                        ).animate().fadeIn(delay: (idx * 20).ms, duration: 200.ms),
-                      ),
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -289,39 +304,43 @@ class _CollectionTabState extends State<CollectionTab> {
     );
   }
 
-  String _normalizePlatform(String raw) {
-    final p = raw.toLowerCase();
-    if (p.contains('playstation 5') || p == 'ps5') return 'PlayStation 5';
-    if (p.contains('playstation 4') || p == 'ps4') return 'PlayStation 4';
-    if (p.contains('playstation 3') || p == 'ps3') return 'PlayStation 3';
-    if (p.contains('playstation 2') || p == 'ps2') return 'PlayStation 2';
-    if (p.contains('playstation') || p.contains('ps')) return 'PlayStation';
-    if (p.contains('switch') || p.contains('nintendo')) return 'Nintendo Switch';
-    if (p.contains('xbox')) return 'Xbox';
-    if (p.contains('steam') || p.contains('pc')) return 'PC / Steam';
-    return raw;
-  }
-
   Color _getPlatformThemeColor(String platform) {
     final p = platform.toLowerCase();
     if (p.contains('playstation') || p.contains('ps')) return const Color(0xFF0070D1);
-    if (p.contains('switch') || p.contains('nintendo')) return const Color(0xFFE60012);
     if (p.contains('xbox')) return const Color(0xFF107C10);
-    if (p.contains('steam') || p.contains('pc')) return const Color(0xFF66C0F4);
-    return AppTheme.accent;
+    if (p.contains('switch') || p.contains('nintendo') || p.contains('wii') || p.contains('ds') || p.contains('nes') || p.contains('snes')) {
+      return const Color(0xFFE60012);
+    }
+    if (p.contains('game boy') || p.contains('gba') || p.contains('gbc') || p.contains('gb')) {
+      return const Color(0xFF6366F1);
+    }
+    if (p.contains('sega') || p.contains('genesis') || p.contains('dreamcast') || p.contains('saturn')) {
+      return const Color(0xFF0055A5);
+    }
+    if (p.contains('ea') || p.contains('origin')) return const Color(0xFFFF5400);
+    if (p.contains('steam')) return const Color(0xFF66C0F4);
+    if (p.contains('epic')) return const Color(0xFFF5F5F5);
+    if (p.contains('gog')) return const Color(0xFF9B51E0);
+    if (p.contains('pc')) return const Color(0xFF38BDF8);
+    if (p.contains('retro') || p.contains('arcade') || p.contains('atari')) return const Color(0xFFF59E0B);
+    return AppTheme.cyan;
   }
 
   IconData _getPlatformIcon(String platform) {
     final p = platform.toLowerCase();
-    if (p.contains('playstation') || p.contains('ps')) return Icons.gamepad_rounded;
-    if (p.contains('switch') || p.contains('nintendo')) return Icons.sports_esports_rounded;
+    if (p.contains('playstation') || p.contains('ps')) return Icons.sports_esports_rounded;
     if (p.contains('xbox')) return Icons.videogame_asset_rounded;
-    if (p.contains('steam') || p.contains('pc')) return Icons.laptop_chromebook_rounded;
+    if (p.contains('switch') || p.contains('nintendo')) return Icons.gamepad_rounded;
+    if (p.contains('game boy') || p.contains('gba') || p.contains('gb')) return Icons.developer_board_rounded;
+    if (p.contains('steam') || p.contains('pc') || p.contains('gog') || p.contains('epic')) return Icons.laptop_chromebook_rounded;
+    if (p.contains('retro') || p.contains('arcade') || p.contains('snes') || p.contains('genesis')) {
+      return Icons.cruelty_free;
+    }
     return Icons.album;
   }
 }
 
-// ================= TARJETA COMPACTA Y ERGONÓMICA =================
+// ================= TARJETA DE COLECCIÓN =================
 class _CollectionCard extends StatefulWidget {
   final OwnedCollectionItem item;
   final VoidCallback onDeleted;
@@ -338,10 +357,17 @@ class _CollectionCardState extends State<_CollectionCard> {
   Color _getPlatformStripeColor(String platform) {
     final p = platform.toLowerCase();
     if (p.contains('playstation') || p.contains('ps')) return const Color(0xFF0070D1);
-    if (p.contains('switch') || p.contains('nintendo')) return const Color(0xFFE60012);
     if (p.contains('xbox')) return const Color(0xFF107C10);
-    if (p.contains('steam') || p.contains('pc')) return const Color(0xFF66C0F4);
-    return AppTheme.accent;
+    if (p.contains('switch') || p.contains('nintendo') || p.contains('wii') || p.contains('ds') || p.contains('nes')) {
+      return const Color(0xFFE60012);
+    }
+    if (p.contains('game boy') || p.contains('gba') || p.contains('gb')) return const Color(0xFF6366F1);
+    if (p.contains('sega') || p.contains('genesis')) return const Color(0xFF0055A5);
+    if (p.contains('ea') || p.contains('origin')) return const Color(0xFFFF5400);
+    if (p.contains('steam')) return const Color(0xFF66C0F4);
+    if (p.contains('gog')) return const Color(0xFF9B51E0);
+    if (p.contains('pc')) return const Color(0xFF38BDF8);
+    return AppTheme.cyan;
   }
 
   @override
@@ -371,10 +397,7 @@ class _CollectionCardState extends State<_CollectionCard> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Franja de color oficial de la consola
               Container(width: 4.5, color: stripeColor),
-
-              // Portada del Juego
               SizedBox(
                 width: 76,
                 child: Stack(
@@ -400,8 +423,6 @@ class _CollectionCardState extends State<_CollectionCard> {
                   ],
                 ),
               ),
-
-              // Información de la Copia
               Expanded(
                 child: InkWell(
                   onTapDown: (_) => setState(() => _isPressed = true),
@@ -420,7 +441,6 @@ class _CollectionCardState extends State<_CollectionCard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        // Título y Plataforma
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -439,8 +459,6 @@ class _CollectionCardState extends State<_CollectionCard> {
                             ),
                           ],
                         ),
-
-                        // Badges: Formato y Edición
                         Row(
                           children: [
                             Container(
@@ -496,8 +514,6 @@ class _CollectionCardState extends State<_CollectionCard> {
                   ),
                 ),
               ),
-
-              // Botón Eliminar
               IconButton(
                 icon: const Icon(Icons.delete_outline, size: 18, color: AppTheme.danger),
                 tooltip: 'Eliminar copia',

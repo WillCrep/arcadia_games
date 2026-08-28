@@ -160,6 +160,11 @@ class ApiService {
     return List<Map<String, dynamic>>.from(res.data);
   }
 
+  Future<int> translateExistingAchievements(int gameId) async {
+    final res = await _dio.post('/library/games/$gameId/achievements/translate');
+    return res.data['translated'] ?? 0;
+  }
+
   Future<int> importTrophiesHunterUrl(int gameId, int platformId, String sourceUrl) async {
     final res = await _dio.post('/library/games/$gameId/achievements/import', data: {
       'platformId': platformId,

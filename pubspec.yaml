@@ -53,6 +53,11 @@ dependencies:
   confetti: ^0.8.0
   fl_chart: ^0.69.0
 
+  # === LIBRERÍA DE PARSEO HTML ===
+  html: ^0.15.4
+   # === NAVEGADOR INTERNO PARA BYPASS DE CLOUDFLARE ===
+  webview_flutter: ^4.10.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

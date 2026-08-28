@@ -7,7 +7,12 @@ class AchievementItem {
   final String? description;
   final String? imageUrl;
   final String? tier;
+  final String? scoreType;
+  final int? points;
   final double? rarityPercent;
+  final bool isHidden;
+  final bool isMissable;
+  final bool isRare;
   bool unlocked;
 
   AchievementItem({
@@ -19,7 +24,12 @@ class AchievementItem {
     this.description,
     this.imageUrl,
     this.tier,
+    this.scoreType,
+    this.points,
     this.rarityPercent,
+    this.isHidden = false,
+    this.isMissable = false,
+    this.isRare = false,
     required this.unlocked,
   });
 
@@ -33,7 +43,12 @@ class AchievementItem {
       description: json['description'] ?? json['Description'],
       imageUrl: json['imageUrl'] ?? json['ImageUrl'],
       tier: json['tier'] ?? json['Tier'] ?? 'Logro',
+      scoreType: json['scoreType'] ?? json['ScoreType'],
+      points: json['points'] ?? json['Points'],
       rarityPercent: (json['rarityPercent'] ?? json['RarityPercent'])?.toDouble(),
+      isHidden: json['isHidden'] ?? json['IsHidden'] ?? false,
+      isMissable: json['isMissable'] ?? json['IsMissable'] ?? false,
+      isRare: json['isRare'] ?? json['IsRare'] ?? false,
       unlocked: json['unlocked'] ?? json['Unlocked'] ?? false,
     );
   }
